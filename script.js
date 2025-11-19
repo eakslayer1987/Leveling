@@ -1,319 +1,389 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const logBox = document.getElementById('log-box');
+const waveEl = document.getElementById('waveEl');
+const livesEl = document.getElementById('livesEl');
+const moneyEl = document.getElementById('moneyEl');
+const nextWaveBtn = document.getElementById('nextWaveBtn');
+const gameOverScreen = document.getElementById('game-over');
 
-// UI Elements
-const levelEl = document.getElementById('level-el');
-const hpEl = document.getElementById('hp-el');
-const maxHpEl = document.getElementById('max-hp-el');
-const floorEl = document.getElementById('floor-el');
-const goldEl = document.getElementById('gold-el');
+// Set Canvas Size
+canvas.width = window.innerWidth > 600 ? 600 : window.innerWidth;
+canvas.height = window.innerHeight - 150; // เผื่อที่ให้ UI
 
 // Game Config
-const TILE_SIZE = 32;
-const GRID_SIZE = 15; // 15x15 ช่อง
-canvas.width = TILE_SIZE * GRID_SIZE;
-canvas.height = TILE_SIZE * GRID_SIZE;
-
-// Colors
-const COLORS = {
-    floor: '#222',
-    wall: '#555',
-    player: '#00ff00',
-    enemy: '#ff0000',
-    stairs: '#ffff00',
-    potion: '#00ffff'
-};
+const TILE_SIZE = 40;
+const COLS = Math.floor(canvas.width / TILE_SIZE);
+const ROWS = Math.floor(canvas.height / TILE_SIZE);
 
 // Game State
-let player = {
-    x: 1, y: 1,
-    level: 1,
-    hp: 100,
-    maxHp: 100,
-    xp: 0,
-    nextLevelXp: 100,
-    atk: 10,
-    gold: 0,
-    floor: 1
+let money = 350;
+let lives = 20;
+let wave = 1;
+let enemies = [];
+let turrets = [];
+let projectiles = [];
+let particles = [];
+let selectedTurretType = 'gun';
+let gameActive = true;
+let waveInProgress = false;
+
+// Turret Types
+const TURRET_TYPES = {
+    gun: { price: 50, range: 100, color: 'cyan', fireRate: 30, dmg: 10, speed: 5 },
+    laser: { price: 150, range: 150, color: '#ff00ff', fireRate: 5, dmg: 2, speed: 15 }, // ยิงรัว เบา
+    cannon: { price: 300, range: 120, color: '#ffff00', fireRate: 60, dmg: 50, speed: 3 } // ยิงช้า แรง
 };
 
-let map = [];
-let enemies = [];
-let particles = []; // Text damage effect
+// Map Path (สร้างเส้นทางเดิน)
+// จุด Waypoints ที่ศัตรูจะเดินผ่าน
+const waypoints = [
+    {x: 0, y: 2},
+    {x: 5, y: 2},
+    {x: 5, y: 8},
+    {x: 2, y: 8},
+    {x: 2, y: 12},
+    {x: 8, y: 12},
+    {x: 8, y: 4},
+    {x: COLS-1, y: 4}
+];
 
-// --- SYSTEM FUNCTIONS ---
+// แปลง Waypoints ให้เป็นพิกัดจริงบนจอ
+const path = waypoints.map(p => ({ x: p.x * TILE_SIZE + TILE_SIZE/2, y: p.y * TILE_SIZE + TILE_SIZE/2 }));
 
-function log(msg, color = '#aaa') {
-    const p = document.createElement('div');
-    p.style.color = color;
-    p.innerText = `> ${msg}`;
-    logBox.prepend(p);
-    if (logBox.children.length > 20) logBox.lastChild.remove();
-}
+// --- CLASSES ---
 
-function saveGame() {
-    localStorage.setItem('rpgSave', JSON.stringify(player));
-    log("บันทึกเกมเรียบร้อย!", "lime");
-}
-
-function loadGame() {
-    const save = localStorage.getItem('rpgSave');
-    if (save) {
-        player = JSON.parse(save);
-        updateUI();
-        log("โหลดเซฟสำเร็จ!", "lime");
+class Enemy {
+    constructor(waveMultiplier) {
+        this.wpIndex = 0; // Waypoint ปัจจุบัน
+        this.x = path[0].x;
+        this.y = path[0].y;
+        this.speed = 1.5 + (waveMultiplier * 0.1);
+        this.radius = 10;
+        this.hp = 30 + (waveMultiplier * 15);
+        this.maxHp = this.hp;
+        this.money = 10 + Math.floor(waveMultiplier * 2);
+        this.frozen = 0;
     }
-}
 
-function resetGame() {
-    if(confirm("เริ่มเล่นใหม่? ข้อมูลเก่าจะหายหมดนะ")) {
-        localStorage.removeItem('rpgSave');
-        location.reload();
-    }
-}
+    update() {
+        // เดินตาม Path
+        const target = path[this.wpIndex + 1];
+        if (!target) return true; // ถึงจุดหมาย
 
-// --- MAP GENERATION ---
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
 
-function generateMap() {
-    map = [];
-    enemies = [];
-    
-    // 1. Fill with walls
-    for (let y = 0; y < GRID_SIZE; y++) {
-        let row = [];
-        for (let x = 0; x < GRID_SIZE; x++) {
-            // ขอบเป็นกำแพง
-            if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
-                row.push(1); // Wall
-            } else {
-                // สุ่มกำแพงข้างใน (15% โอกาส)
-                row.push(Math.random() < 0.15 ? 1 : 0);
+        this.x += Math.cos(angle) * this.speed;
+        this.y += Math.sin(angle) * this.speed;
+
+        // ถ้าใกล้ถึง waypoint ถัดไป ให้เปลี่ยนเป้า
+        if (dist < 5) {
+            this.wpIndex++;
+            if (this.wpIndex >= path.length - 1) {
+                lives--;
+                livesEl.innerText = lives;
+                if (lives <= 0) gameOver();
+                return true; // ลบออกจาก array
             }
         }
-        map.push(row);
+        return false;
     }
 
-    // 2. Place Stairs (ทางลง)
-    let sx, sy;
-    do {
-        sx = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
-        sy = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
-    } while (map[sy][sx] === 1 || (sx === player.x && sy === player.y));
-    map[sy][sx] = 2; // Stairs
-
-    // 3. Spawn Enemies (จำนวนตามชั้น)
-    const enemyCount = 3 + Math.floor(player.floor / 2);
-    for (let i = 0; i < enemyCount; i++) {
-        spawnEnemy();
-    }
-    
-    // Ensure player pos is clear
-    map[player.y][player.x] = 0;
-}
-
-function spawnEnemy() {
-    let ex, ey;
-    do {
-        ex = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
-        ey = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
-    } while (map[ey][ex] !== 0 || (ex === player.x && ey === player.y));
-    
-    // Enemy Stat Scale ตามชั้น
-    const scale = player.floor;
-    enemies.push({
-        x: ex, y: ey,
-        hp: 20 + (scale * 10),
-        maxHp: 20 + (scale * 10),
-        atk: 2 + scale,
-        xp: 10 + (scale * 5),
-        gold: Math.floor(Math.random() * 10) + scale
-    });
-}
-
-// --- GAMEPLAY ---
-
-function movePlayer(dx, dy) {
-    if (player.hp <= 0) return;
-
-    const newX = player.x + dx;
-    const newY = player.y + dy;
-
-    // เช็คกำแพง
-    if (map[newY][newX] === 1) return;
-
-    // เช็คศัตรู
-    const enemyIndex = enemies.findIndex(e => e.x === newX && e.y === newY);
-    if (enemyIndex !== -1) {
-        attackEnemy(enemyIndex);
-    } else {
-        player.x = newX;
-        player.y = newY;
+    draw() {
+        ctx.fillStyle = `hsl(${this.hp * 2}, 100%, 50%)`; // สีเปลี่ยนตามเลือด
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+        ctx.fill();
         
-        // เช็คบันได
-        if (map[player.y][player.x] === 2) {
-            nextFloor();
-        }
-    }
-    
-    updateUI();
-    draw();
-}
-
-function attackEnemy(index) {
-    const enemy = enemies[index];
-    
-    // Player Hit
-    const dmg = Math.floor(player.atk * (Math.random() * 0.4 + 0.8)); // atk +/- 20%
-    enemy.hp -= dmg;
-    createParticle(enemy.x, enemy.y, `-${dmg}`, 'white');
-    
-    if (enemy.hp <= 0) {
-        // Enemy Die
-        enemies.splice(index, 1);
-        player.xp += enemy.xp;
-        player.gold += enemy.gold;
-        log(`กำจัดศัตรู! ได้ ${enemy.xp} XP, ${enemy.gold} Gold`, "gold");
-        checkLevelUp();
-    } else {
-        // Enemy Counter Attack
-        const enemyDmg = Math.max(1, Math.floor(enemy.atk - (player.level * 0.5))); // เกราะทิพย์
-        player.hp -= enemyDmg;
-        createParticle(player.x, player.y, `-${enemyDmg}`, 'red');
-        log(`โดนสวนกลับ ${enemyDmg} ดาเมจ!`, "red");
-        
-        if (player.hp <= 0) {
-            player.hp = 0;
-            log("GAME OVER! คุณตายแล้ว", "red");
-            alert("คุณเสียชีวิต... กด Reset เพื่อเริ่มใหม่");
-        }
-    }
-}
-
-function checkLevelUp() {
-    if (player.xp >= player.nextLevelXp) {
-        player.level++;
-        player.xp -= player.nextLevelXp;
-        player.nextLevelXp = Math.floor(player.nextLevelXp * 1.5);
-        player.maxHp += 20;
-        player.hp = player.maxHp;
-        player.atk += 5;
-        log(`LEVEL UP! เลเวล ${player.level} แล้ว!`, "lime");
-        createParticle(player.x, player.y, "LEVEL UP!", "lime");
-    }
-}
-
-function nextFloor() {
-    player.floor++;
-    log(`ลงสู่ชั้นที่ ${player.floor}...`, "cyan");
-    generateMap();
-    saveGame(); // Auto save เมื่อลงชั้น
-}
-
-function heal() {
-    if (player.gold >= 50) {
-        player.gold -= 50;
-        player.hp = Math.min(player.hp + 50, player.maxHp);
-        log("ซื้อยาเติมเลือด (+50 HP)", "cyan");
-        updateUI();
-        draw();
-    } else {
-        log("เงินไม่พอ! (ต้องการ 50 Gold)", "orange");
-    }
-}
-
-// --- RENDERING ---
-
-function draw() {
-    // Clear
-    ctx.fillStyle = COLORS.floor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw Map
-    for (let y = 0; y < GRID_SIZE; y++) {
-        for (let x = 0; x < GRID_SIZE; x++) {
-            if (map[y][x] === 1) {
-                // Wall
-                ctx.fillStyle = COLORS.wall;
-                ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                // เงาเพื่อให้ดูมีมิติ
-                ctx.fillStyle = '#000';
-                ctx.globalAlpha = 0.2;
-                ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE - 5, TILE_SIZE, 5);
-                ctx.globalAlpha = 1.0;
-            } else if (map[y][x] === 2) {
-                // Stairs
-                ctx.fillStyle = COLORS.stairs;
-                ctx.fillRect(x * TILE_SIZE + 8, y * TILE_SIZE + 8, 16, 16);
-            }
-        }
-    }
-
-    // Draw Enemies
-    enemies.forEach(e => {
-        ctx.fillStyle = COLORS.enemy;
-        // วาดศัตรู (สี่เหลี่ยมแดงมีตา)
-        ctx.fillRect(e.x * TILE_SIZE + 4, e.y * TILE_SIZE + 4, 24, 24);
-        // HP Bar
-        const hpPercent = e.hp / e.maxHp;
+        // Health Bar
         ctx.fillStyle = 'red';
-        ctx.fillRect(e.x * TILE_SIZE + 4, e.y * TILE_SIZE - 2, 24, 4);
-        ctx.fillStyle = 'lime';
-        ctx.fillRect(e.x * TILE_SIZE + 4, e.y * TILE_SIZE - 2, 24 * hpPercent, 4);
-    });
+        ctx.fillRect(this.x - 10, this.y - 15, 20, 4);
+        ctx.fillStyle = '#0f0';
+        ctx.fillRect(this.x - 10, this.y - 15, 20 * (this.hp / this.maxHp), 4);
+    }
+}
 
-    // Draw Player
-    ctx.fillStyle = COLORS.player;
-    ctx.fillRect(player.x * TILE_SIZE + 4, player.y * TILE_SIZE + 4, 24, 24);
-    // หมวก
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(player.x * TILE_SIZE + 10, player.y * TILE_SIZE + 8, 12, 6);
+class Turret {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.stats = TURRET_TYPES[type];
+        this.angle = 0;
+        this.cooldown = 0;
+    }
 
-    // Draw Particles (Text damage)
-    particles.forEach((p, i) => {
-        ctx.fillStyle = p.color;
-        ctx.font = "bold 14px monospace";
-        ctx.fillText(p.text, p.x * TILE_SIZE, p.y * TILE_SIZE - p.life);
-        p.life++;
-        if(p.life > 20) particles.splice(i, 1);
-    });
+    update() {
+        if (this.cooldown > 0) this.cooldown--;
+
+        // หาศัตรูที่ใกล้ที่สุด
+        let target = null;
+        let minDst = Infinity;
+
+        for (let enemy of enemies) {
+            const dist = Math.hypot(enemy.x - this.x, enemy.y - this.y);
+            if (dist < this.stats.range && dist < minDst) {
+                minDst = dist;
+                target = enemy;
+            }
+        }
+
+        if (target) {
+            this.angle = Math.atan2(target.y - this.y, target.x - this.x);
+            if (this.cooldown <= 0) {
+                this.shoot(target);
+                this.cooldown = this.stats.fireRate;
+            }
+        }
+    }
+
+    shoot(target) {
+        projectiles.push(new Projectile(this.x, this.y, target, this.stats));
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        // วาดระยะ (ถ้าเอาเมาส์ชี้ - ในที่นี้วาดจางๆ ไว้สวยๆ)
+        ctx.beginPath();
+        ctx.arc(0, 0, this.stats.range, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.stroke();
+
+        // หมุนป้อม
+        ctx.rotate(this.angle);
+        
+        // ฐาน
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-15, -15, 30, 30);
+        
+        // กระบอกปืน
+        ctx.fillStyle = this.stats.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillRect(0, -4, 20, 8); // ลำกล้อง
+
+        ctx.restore();
+    }
+}
+
+class Projectile {
+    constructor(x, y, target, stats) {
+        this.x = x;
+        this.y = y;
+        this.target = target; // ล็อกเป้า (Homing นิดหน่อย)
+        this.speed = stats.speed;
+        this.dmg = stats.dmg;
+        this.color = stats.color;
+        this.radius = 4;
+        
+        // คำนวณทิศทางแรกเริ่ม
+        const angle = Math.atan2(target.y - y, target.x - x);
+        this.vx = Math.cos(angle) * this.speed;
+        this.vy = Math.sin(angle) * this.speed;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // เช็คชน
+        for (let enemy of enemies) {
+            const dist = Math.hypot(enemy.x - this.x, enemy.y - this.y);
+            if (dist < enemy.radius + this.radius) {
+                enemy.hp -= this.dmg;
+                // Effect
+                for(let i=0; i<3; i++) particles.push(new Particle(this.x, this.y, this.color));
+                return true; // ชนแล้วหายไป
+            }
+        }
+        
+        // ออกนอกจอ
+        if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) return true;
+        return false;
+    }
+
+    draw() {
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.life = 1.0;
+        this.vx = (Math.random() - 0.5) * 3;
+        this.vy = (Math.random() - 0.5) * 3;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= 0.1;
+        return this.life <= 0;
+    }
+    draw() {
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, 3, 3);
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+// --- GAME LOGIC ---
+
+function spawnWave() {
+    if (waveInProgress) return;
+    waveInProgress = true;
+    nextWaveBtn.disabled = true;
+    nextWaveBtn.innerText = "WAVE INCOMING...";
     
-    if(particles.length > 0) requestAnimationFrame(draw); // Keep animating particles
+    let count = 0;
+    const maxEnemies = 5 + Math.floor(wave * 1.5);
+    
+    const spawnInterval = setInterval(() => {
+        enemies.push(new Enemy(wave));
+        count++;
+        if (count >= maxEnemies) {
+            clearInterval(spawnInterval);
+        }
+    }, 1000 - (Math.min(500, wave * 20))); // ยิ่งเวฟสูงยิ่งมาถี่
 }
 
-function createParticle(x, y, text, color) {
-    particles.push({x, y, text, color, life: 0});
-    draw(); // trigger redraw
+function checkWaveEnd() {
+    if (waveInProgress && enemies.length === 0) {
+        waveInProgress = false;
+        wave++;
+        waveEl.innerText = wave;
+        money += 50; // จบเวฟได้โบนัส
+        moneyEl.innerText = money;
+        nextWaveBtn.disabled = false;
+        nextWaveBtn.innerText = "START NEXT WAVE";
+    }
 }
 
-function updateUI() {
-    levelEl.innerText = player.level;
-    hpEl.innerText = player.hp;
-    maxHpEl.innerText = player.maxHp;
-    floorEl.innerText = player.floor;
-    goldEl.innerText = player.gold;
+function gameOver() {
+    gameActive = false;
+    document.getElementById('finalWave').innerText = wave;
+    gameOverScreen.classList.remove('hidden');
 }
 
-// --- INPUTS ---
-
-window.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp') movePlayer(0, -1);
-    if (e.key === 'ArrowDown') movePlayer(0, 1);
-    if (e.key === 'ArrowLeft') movePlayer(-1, 0);
-    if (e.key === 'ArrowRight') movePlayer(1, 0);
+// Input
+canvas.addEventListener('mousedown', (e) => {
+    if (!gameActive) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Snap to Grid
+    const col = Math.floor(x / TILE_SIZE);
+    const row = Math.floor(y / TILE_SIZE);
+    const centerX = col * TILE_SIZE + TILE_SIZE/2;
+    const centerY = row * TILE_SIZE + TILE_SIZE/2;
+    
+    // 1. เช็คว่าวางทับ Path ไหม
+    // (วิธีง่ายๆ: เช็คระยะห่างจากเส้น Waypoints)
+    let onPath = false;
+    for (let i = 0; i < path.length - 1; i++) {
+        const p1 = path[i];
+        const p2 = path[i+1];
+        // เช็คว่าเป็นจุดบนเส้นนี้ไหม (Simplified)
+        const distToSegment = pointToSegmentDist(centerX, centerY, p1.x, p1.y, p2.x, p2.y);
+        if (distToSegment < TILE_SIZE/2) onPath = true;
+    }
+    
+    // 2. เช็คว่าทับป้อมเดิมไหม
+    const existing = turrets.find(t => t.x === centerX && t.y === centerY);
+    
+    if (!onPath && !existing) {
+        const cost = TURRET_TYPES[selectedTurretType].price;
+        if (money >= cost) {
+            money -= cost;
+            moneyEl.innerText = money;
+            turrets.push(new Turret(centerX, centerY, selectedTurretType));
+        }
+    }
 });
 
-document.getElementById('btn-up').addEventListener('click', () => movePlayer(0, -1));
-document.getElementById('btn-down').addEventListener('click', () => movePlayer(0, 1));
-document.getElementById('btn-left').addEventListener('click', () => movePlayer(-1, 0));
-document.getElementById('btn-right').addEventListener('click', () => movePlayer(1, 0));
+// Utility: Distance from point to line segment
+function pointToSegmentDist(px, py, x1, y1, x2, y2) {
+    const l2 = (x1-x2)**2 + (y1-y2)**2;
+    if (l2 == 0) return Math.hypot(px-x1, py-y1);
+    let t = ((px-x1)*(x2-x1) + (py-y1)*(y2-y1)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t*(x2-x1)), py - (y1 + t*(y2-y1)));
+}
 
-document.getElementById('btn-heal').addEventListener('click', heal);
-document.getElementById('btn-save').addEventListener('click', saveGame);
-document.getElementById('btn-reset').addEventListener('click', resetGame);
+// Main Loop
+function animate() {
+    if (!gameActive) return;
+    requestAnimationFrame(animate);
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw Path Line
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 20;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for(let i=1; i<path.length; i++) ctx.lineTo(path[i].x, path[i].y);
+    ctx.stroke();
+    // Path Highlight
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.1)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
 
-// START
-loadGame(); // ลองโหลดเซฟเก่า
-generateMap(); // สร้างด่าน
-updateUI();
-draw();
+    // Update & Draw Turrets
+    turrets.forEach(t => { t.update(); t.draw(); });
+
+    // Update & Draw Enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        const reachedEnd = e.update();
+        if (e.hp <= 0) {
+            money += e.money;
+            moneyEl.innerText = money;
+            enemies.splice(i, 1);
+        } else if (reachedEnd) {
+            enemies.splice(i, 1);
+        } else {
+            e.draw();
+        }
+    }
+
+    // Update & Draw Projectiles
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        if (projectiles[i].update()) projectiles.splice(i, 1);
+        else projectiles[i].draw();
+    }
+    
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        if (particles[i].update()) particles.splice(i, 1);
+        else particles[i].draw();
+    }
+
+    checkWaveEnd();
+}
+
+// UI Functions
+window.selectTurret = function(type) {
+    selectedTurretType = type;
+    document.querySelectorAll('.turret-select').forEach(el => el.classList.remove('selected'));
+    document.getElementById(`btn-${type}`).classList.add('selected');
+}
+
+nextWaveBtn.addEventListener('click', spawnWave);
+
+animate();
