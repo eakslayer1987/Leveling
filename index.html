@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dungeon Legend RPG</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-header">
+            <div class="stat-box">LV: <span id="level-el">1</span></div>
+            <div class="stat-box">HP: <span id="hp-el">100</span>/<span id="max-hp-el">100</span></div>
+            <div class="stat-box">FL: <span id="floor-el">1</span></div>
+            <div class="stat-box" style="color:gold;">GOLD: <span id="gold-el">0</span></div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="log-box">ยินดีต้อนรับสู่ดันเจี้ยน...</div>
+
+        <div id="controls">
+            <div class="dpad">
+                <button id="btn-up">▲</button>
+                <div class="dpad-row">
+                    <button id="btn-left">◀</button>
+                    <button id="btn-right">▶</button>
+                </div>
+                <button id="btn-down">▼</button>
+            </div>
+            <div class="actions">
+                <button id="btn-heal" class="action-btn">Heal (50G)</button>
+                <button id="btn-save" class="action-btn">SAVE</button>
+                <button id="btn-reset" class="action-btn" style="background:#ff4444;">RESET</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
