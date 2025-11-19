@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Defense Command</title>
+    <title>Neon Defense: Redux</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,24 +11,39 @@
     <div id="game-container">
         <div id="top-bar">
             <div class="stat">WAVE: <span id="waveEl">1</span></div>
-            <div class="stat">LIVES: <span id="livesEl" style="color: #ff3333;">20</span></div>
-            <div class="stat">MONEY: $<span id="moneyEl" style="color: #ffff00;">100</span></div>
+            <div class="stat">❤️ <span id="livesEl" style="color: #ff4444;">20</span></div>
+            <div class="stat">💰 $<span id="moneyEl" style="color: #ffd700;">350</span></div>
         </div>
 
         <canvas id="gameCanvas"></canvas>
 
         <div id="controls">
             <div class="turret-select selected" onclick="selectTurret('gun')" id="btn-gun">
-                <div class="icon" style="background:cyan;"></div>
-                <span>PISTOL ($50)</span>
+                <div class="icon-container">
+                    <div class="icon" style="background:cyan; box-shadow: 0 0 10px cyan;"></div>
+                </div>
+                <div class="info">
+                    <span class="name">PISTOL</span>
+                    <span class="cost">$50</span>
+                </div>
             </div>
             <div class="turret-select" onclick="selectTurret('laser')" id="btn-laser">
-                <div class="icon" style="background:#ff00ff;"></div>
-                <span>LASER ($150)</span>
+                <div class="icon-container">
+                    <div class="icon" style="background:#ff00ff; box-shadow: 0 0 10px #ff00ff;"></div>
+                </div>
+                <div class="info">
+                    <span class="name">LASER</span>
+                    <span class="cost">$150</span>
+                </div>
             </div>
             <div class="turret-select" onclick="selectTurret('cannon')" id="btn-cannon">
-                <div class="icon" style="background:#ffff00;"></div>
-                <span>BLASTER ($300)</span>
+                <div class="icon-container">
+                    <div class="icon" style="background:#ffff00; box-shadow: 0 0 10px #ffff00;"></div>
+                </div>
+                <div class="info">
+                    <span class="name">BLASTER</span>
+                    <span class="cost">$300</span>
+                </div>
             </div>
         </div>
         
@@ -36,8 +51,8 @@
         
         <div id="game-over" class="hidden">
             <h1>GAME OVER</h1>
-            <p>Surlived: <span id="finalWave">0</span> Waves</p>
-            <button onclick="location.reload()">RETRY</button>
+            <p>คุณรอดมาได้ <span id="finalWave">0</span> เวฟ</p>
+            <button onclick="location.reload()">เล่นใหม่</button>
         </div>
     </div>
 
